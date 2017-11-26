@@ -1,3 +1,3 @@
 #!/bin/sh
 
-./halite -d "240 160" "python3 MyBot.py" "python3 MyBot_starter.py"
+./halite -d "240 160" "python3 MyBot.py" "python3 MyBot_v3.py"

@@ -18,30 +18,11 @@ Better strategy
 
 import hlt
 import logging
-import numpy as np
 import time
-
-
-class ActionShip:
-
-    def __init__(self, ship):
-        self.ship = ship
-        self.action =
-
-    def get_id(self):
-        return self.ship.id
-
-    def set_action(self, action):
-        self.action = action
-
-
-
-
 
 class SwarmMaster:
     def __init__(self, game_map, track_enemies):
         logging.info("Starting Swarm Master")
-        self.static_map = np.zeros((game_map.width, game_map.height), dtype=bool)
         self.track_enemies = track_enemies
         self.planets_being_explored = []
 
@@ -151,7 +132,7 @@ class GameMaster:
     def __init__(self):
 
         #start up game process
-        self.game = hlt.Game("BaucomBot")
+        self.game = hlt.Game("BaucomBot_v3")
         logging.info("Starting Game Master")
 
         #init game master

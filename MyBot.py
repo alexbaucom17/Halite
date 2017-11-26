@@ -19,12 +19,17 @@ Better strategy
 - What action to take is determined by some higher level probabalistic process (i.e. NN or game logic)
     -Look at a few global game parameters and then a subset of local entities to choose action
 - Once an action is chosen, there is a small probability that this action will be abandoned or if there is a significant change in the game state
+- Three tierd approach
+    - Strategist looks at game state and determines what percentage of fleet should do which actions
+    - Swarm master assigns actions to ships and helps determine best ship for each action
+    - Ships carry out actions and communicate with swarm master regarding suitability for action
 """
 
 import hlt
 import logging
 import time
 from enum import Enum
+import random
 
 class ActionType(Enum):
     DIVIDE = 0
@@ -65,7 +70,9 @@ class ActionShip:
         elif self.action == ActionType.CONQUER:
             cmd = self.do_conquer_action(game_map)
         else:
-            raise ValueError('Invalid Action Type')
+            logging.warning("Invalid ActionType")
+            cmd = ''
+            
         return cmd
                 
     def do_divide_action(self, game_map):
@@ -75,13 +82,16 @@ class ActionShip:
             return self.navigate_then_dock(game_map, closest_free_planet)
         else:
             return ''
-        
-        
-    def do_foritfy_action(self, game_map):
+           
+    def do_fortify_action(self, game_map):
         logging.info("Ship "+str(self.get_id()) + " doing action FORTIFY")
+        closest_owned_planet = self.find_closest_planet(game_map, planet_status='mine')
+        if closest_owned_planet:
+            return self.navigate_then_dock(game_map, closest_owned_planet)
+        else:
+            return ''
         pass
-        
-        
+           
     def do_attack_action(self, game_map):
         logging.info("Ship "+str(self.get_id()) + " doing action ATTACK")
         closest_enemy_planet = self.find_closest_planet(game_map, planet_status='enemy')
@@ -90,26 +100,58 @@ class ActionShip:
         else:
             return ''
         if weakest_ship:
-            return self.basic_navigation(game_map,weakest_ship)
+            return self.basic_navigation(game_map,weakest_ship,ignore_mode='ships')
         else:
             return ''
         
         
     def do_defend_action(self, game_map):
         logging.info("Ship "+str(self.get_id()) + " doing action DEFEND")
-        pass
+        closest_enemy_ship = self.find_closest_enemy_ship(game_map)
+        if closest_enemy_ship:
+            if self.ship.calculate_distance_between(closest_enemy_ship) < 20:
+                return self.basic_navigation(game_map,closest_enemy_ship,ignore_mode='ships')
+            else:
+                return self.basic_navigation(game_map,closest_enemy_ship,ignore_mode='none')
         
         
     def do_conquer_action(self, game_map):
         logging.info("Ship "+str(self.get_id()) + " doing action CONQUER")
-        pass
+        closest_enemy_planet = self.find_closest_planet(game_map, planet_status='enemy')
+        if closest_enemy_planet:
+            return self.basic_navigation(game_map,closest_enemy_planet,ignore_mode='planets')
+        else:
+            return ''
+        
       
-    def basic_navigation(self, game_map, destination):
-        nav_cmd = self.ship.navigate(
-                self.ship.closest_point_to(destination),
-                game_map,
-                speed=int(hlt.constants.MAX_SPEED),
-                ignore_ships=True)
+    def basic_navigation(self, game_map, destination,ignore_mode='none'):
+        if ignore_mode == 'none':
+            nav_cmd = self.ship.navigate(
+                    self.ship.closest_point_to(destination),
+                    game_map,
+                    speed=int(hlt.constants.MAX_SPEED))
+        elif ignore_mode == 'ships':
+            nav_cmd = self.ship.navigate(
+                    self.ship.closest_point_to(destination),
+                    game_map,
+                    speed=int(hlt.constants.MAX_SPEED),
+                    ignore_ships=True)
+        elif ignore_mode == 'planets':
+            nav_cmd = self.ship.navigate(
+                    destination,
+                    game_map,
+                    speed=int(hlt.constants.MAX_SPEED),
+                    ignore_planets=True)
+        elif ignore_mode == 'all':
+            nav_cmd = self.ship.navigate(
+                    destination,
+                    game_map,
+                    speed=int(hlt.constants.MAX_SPEED),
+                    avoid_obstacles=False)
+        else:
+            logging.warning("Invalid ignore_mode set for basic_navigation")
+            nav_cmd = ''
+        
         if nav_cmd:
             return nav_cmd
         else:
@@ -122,6 +164,23 @@ class ActionShip:
         else:
             return self.basic_navigation(game_map,planet)
     
+    @staticmethod
+    def is_planet_suitable(game_map, planet, planet_status, ignore_list=[]):
+        
+        if planet.is_owned():
+            if planet_status == 'free':
+                return False
+            else:
+                if planet.owner == game_map.get_me() and (planet_status == 'enemy' or planet.is_full()):
+                    return False
+                if planet.owner != game_map.get_me() and planet_status == 'mine':
+                    return False
+                    
+        if planet in ignore_list:
+            return False
+        
+        return True
+        
         
     def find_closest_planet(self, game_map, planet_status='free'):
 
@@ -130,15 +189,8 @@ class ActionShip:
         min_dist = 1000000
         for planet in game_map.all_planets():
 
-            # determine if we are interested in this planet or not
-            if planet.is_owned():
-                if planet_status == 'free':
-                    continue
-                else:
-                    if planet.owner == game_map.get_me() and planet_status == 'enemy':
-                        continue
-                    if planet.owner != game_map.get_me() and planet_status == 'mine':
-                        continue
+            if not self.is_planet_suitable(game_map, planet, planet_status):
+                continue            
 
             # find distance to planet
             dist = self.ship.calculate_distance_between(planet)
@@ -151,6 +203,28 @@ class ActionShip:
             return []
         else:
             return best_planet
+            
+    def find_closest_enemy_ship(self, game_map):
+
+        # For each enemy ship
+        best_ship = []
+        min_dist = 1000000
+        for player in game_map.all_players():
+            if player == game_map.get_me():
+                continue
+            
+            for enemy_ship in player.all_ships():          
+                # find distance to ship
+                dist = self.ship.calculate_distance_between(enemy_ship)
+                if dist < min_dist:
+                    min_dist = dist
+                    best_ship = enemy_ship
+
+        #only update list if we get a valid planet
+        if not best_ship:
+            return []
+        else:
+            return best_ship
     
 
 class SwarmMaster:
@@ -164,7 +238,7 @@ class SwarmMaster:
         self.active_ship_list = [ActionShip(ship) for ship in game_map.get_me().all_ships() if ship.docking_status == hlt.entity.Ship.DockingStatus.UNDOCKED]
 
 
-    def update_swarm(self, game_map):
+    def update_swarm(self, game_map, turn_count):
         
         command_queue = []
         self.planets_being_explored = []
@@ -172,9 +246,22 @@ class SwarmMaster:
 
         for actionShip in self.active_ship_list:
         
-            cmd = actionShip.do_action(game_map,ActionType.DIVIDE)
+            #try to go to a planet first
+            if turn_count < 10:
+                cmd = actionShip.do_action(game_map,ActionType.DIVIDE)
+            else:
+                if random.random() > 0.3:
+                    cmd = actionShip.do_action(game_map,ActionType.DIVIDE)
+                else:
+                    cmd = actionShip.do_action(game_map,ActionType.FORTIFY)
+                
+            # if we can't divide or fortify, go on the offensive    
             if not cmd:
-                cmd = actionShip.do_action(game_map,ActionType.ATTACK)
+                if random.random() > 0.3:
+                    cmd = actionShip.do_action(game_map,ActionType.ATTACK)
+                else:
+                    cmd = actionShip.do_action(game_map,ActionType.DEFEND)
+               
             command_queue.append(cmd)
 
         return command_queue
@@ -198,13 +285,15 @@ class GameMaster:
     def one_turn(self):
 
         self.turn_counter += 1
-        logging.info("Executing Turn: " + str(self.turn_counter))
+        self.turn_timer = time.time()
+        logging.info("Starting Turn: " + str(self.turn_counter))
 
-        commands = self.swarm.update_swarm(self.game.update_map())
+        commands = self.swarm.update_swarm(self.game.update_map(), self.turn_counter)
         if not commands:
             commands = ''
         logging.info("Commands: "+str(commands))
         self.game.send_command_queue(commands)
+        logging.info("Ending Turn: "+str(self.turn_counter) + ", Elapsed time: " +str(time.time() - self.turn_timer))
 
 
 if __name__ == "__main__":
