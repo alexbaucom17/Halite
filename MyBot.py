@@ -238,7 +238,7 @@ class SwarmMaster:
         self.active_ship_list = [ActionShip(ship) for ship in game_map.get_me().all_ships() if ship.docking_status == hlt.entity.Ship.DockingStatus.UNDOCKED]
 
 
-    def update_swarm(self, game_map, turn_count):
+    def update_swarm(self, game_map, turn_count, turn_time):
         
         command_queue = []
         self.planets_being_explored = []
@@ -246,11 +246,16 @@ class SwarmMaster:
 
         for actionShip in self.active_ship_list:
         
+            #if we are getting close to time limit, break early
+            if time.time() - turn_time > 1.75:
+                logging.warning("Breaking from turn "+str(turn_count)+" early due to time limit!")
+                break
+        
             #try to go to a planet first
             if turn_count < 10:
                 cmd = actionShip.do_action(game_map,ActionType.DIVIDE)
             else:
-                if random.random() > 0.3:
+                if random.random() > 0.9:
                     cmd = actionShip.do_action(game_map,ActionType.DIVIDE)
                 else:
                     cmd = actionShip.do_action(game_map,ActionType.FORTIFY)
@@ -288,11 +293,11 @@ class GameMaster:
         self.turn_timer = time.time()
         logging.info("Starting Turn: " + str(self.turn_counter))
 
-        commands = self.swarm.update_swarm(self.game.update_map(), self.turn_counter)
+        commands = self.swarm.update_swarm(self.game.update_map(), self.turn_counter, self.turn_timer)
         if not commands:
             commands = ''
-        logging.info("Commands: "+str(commands))
         self.game.send_command_queue(commands)
+        logging.info("Commands: "+str(commands))
         logging.info("Ending Turn: "+str(self.turn_counter) + ", Elapsed time: " +str(time.time() - self.turn_timer))
 
 
