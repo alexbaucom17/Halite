@@ -11,6 +11,11 @@ Key points
 
 Better strategy
 - Each ship has a number of actions it can take: divide, fortify, attack, defend, conquer
+    - Divide will send the ship to the closest unocupied planet, will superceed another ship 'dividing' to that planet if it is closer (need to be careful of looping here) - also need a flag for sending multiple ships to planets 
+    - Foritfy will send the ship to the closest planet we own.
+    - Attack will send ships to attack enemies on other planets (aim maybe for weakest enemy on closest planet)
+    - Defend will attack enemies in flight
+    - Conquer will aim to destroy entire planets by crashing ships into them
 - What action to take is determined by some higher level probabalistic process (i.e. NN or game logic)
     -Look at a few global game parameters and then a subset of local entities to choose action
 - Once an action is chosen, there is a small probability that this action will be abandoned or if there is a significant change in the game state
@@ -18,34 +23,107 @@ Better strategy
 
 import hlt
 import logging
-import numpy as np
 import time
+from enum import Enum
 
+class ActionType(Enum):
+    DIVIDE = 0
+    FORTIFY = 1
+    ATTACK = 2
+    DEFEND = 3
+    CONQUER = 4
+    
+def get_weakest_ship(ship_list):
+
+    weakest_ship = []
+    lowest_health = 10000000
+    for ship in ship_list:
+        if ship.health < lowest_health:
+            weakest_ship = ship
+            lowest_health = ship.health
+    return weakest_ship
 
 class ActionShip:
 
-    def __init__(self, ship):
+    def __init__(self, ship, default_action=ActionType.DIVIDE):
         self.ship = ship
-        self.action =
+        self.action = default_action
 
     def get_id(self):
         return self.ship.id
-
-    def set_action(self, action):
+        
+    def do_action(self, game_map, action=ActionType.DIVIDE):
         self.action = action
-
-
-
-
-
-class SwarmMaster:
-    def __init__(self, game_map, track_enemies):
-        logging.info("Starting Swarm Master")
-        self.static_map = np.zeros((game_map.width, game_map.height), dtype=bool)
-        self.track_enemies = track_enemies
-        self.planets_being_explored = []
-
-    def find_closest_planet(self, game_map, ship, planet_status='free'):
+        if self.action == ActionType.DIVIDE:
+            cmd = self.do_divide_action(game_map)
+        elif self.action == ActionType.FORTIFY:
+            cmd = self.do_fortify_action(game_map)
+        elif self.action == ActionType.ATTACK:
+            cmd = self.do_attack_action(game_map)
+        elif self.action == ActionType.DEFEND:
+            cmd = self.do_defend_action(game_map)
+        elif self.action == ActionType.CONQUER:
+            cmd = self.do_conquer_action(game_map)
+        else:
+            raise ValueError('Invalid Action Type')
+        return cmd
+                
+    def do_divide_action(self, game_map):
+        logging.info("Ship "+str(self.get_id()) + " doing action DIVIDE")
+        closest_free_planet = self.find_closest_planet(game_map, planet_status='free')
+        if closest_free_planet:
+            return self.navigate_then_dock(game_map, closest_free_planet)
+        else:
+            return ''
+        
+        
+    def do_foritfy_action(self, game_map):
+        logging.info("Ship "+str(self.get_id()) + " doing action FORTIFY")
+        pass
+        
+        
+    def do_attack_action(self, game_map):
+        logging.info("Ship "+str(self.get_id()) + " doing action ATTACK")
+        closest_enemy_planet = self.find_closest_planet(game_map, planet_status='enemy')
+        if closest_enemy_planet:
+            weakest_ship = get_weakest_ship(closest_enemy_planet.all_docked_ships())
+        else:
+            return ''
+        if weakest_ship:
+            return self.basic_navigation(game_map,weakest_ship)
+        else:
+            return ''
+        
+        
+    def do_defend_action(self, game_map):
+        logging.info("Ship "+str(self.get_id()) + " doing action DEFEND")
+        pass
+        
+        
+    def do_conquer_action(self, game_map):
+        logging.info("Ship "+str(self.get_id()) + " doing action CONQUER")
+        pass
+      
+    def basic_navigation(self, game_map, destination):
+        nav_cmd = self.ship.navigate(
+                self.ship.closest_point_to(destination),
+                game_map,
+                speed=int(hlt.constants.MAX_SPEED),
+                ignore_ships=True)
+        if nav_cmd:
+            return nav_cmd
+        else:
+            return ''
+          
+        
+    def navigate_then_dock(self, game_map, planet):    
+        if self.ship.can_dock(planet):
+            return self.ship.dock(planet)
+        else:
+            return self.basic_navigation(game_map,planet)
+    
+        
+    def find_closest_planet(self, game_map, planet_status='free'):
 
         # For each planet in the game (only non-destroyed planets are included)
         best_planet = []
@@ -63,10 +141,8 @@ class SwarmMaster:
                         continue
 
             # find distance to planet
-            dist = ship.calculate_distance_between(planet)
-
-            # only add planets that someone else isn't checking
-            if dist < min_dist and planet not in self.planets_being_explored:
+            dist = self.ship.calculate_distance_between(planet)
+            if dist < min_dist:
                 min_dist = dist
                 best_planet = planet
 
@@ -74,75 +150,32 @@ class SwarmMaster:
         if not best_planet:
             return []
         else:
-            if planet_status != 'enemy':
-                self.planets_being_explored.append(best_planet)
             return best_planet
+    
 
-    def act_on_planet(self, planet, ship, game_map):
+class SwarmMaster:
+    def __init__(self):
+        logging.info("Starting Swarm Master")
+        self.planets_being_explored = []
+        self.active_ship_list = []
 
-        if ship.can_dock(planet):
-            # We add the command by appending it to the command_queue
-            return ship.dock(planet)
-        else:
-            # If we can't dock, we move towards the closest empty point near this planet (by using closest_point_to)
-            # with constant speed. Don't worry about pathfinding for now, as the command will do it for you.
-            # We run this navigate command each turn until we arrive to get the latest move.
-            # Here we move at half our maximum speed to better control the ships
-            # In order to execute faster we also choose to ignore ship collision calculations during navigation.
-            # This will mean that you have a higher probability of crashing into ships, but it also means you will
-            # make move decisions much quicker. As your skill progresses and your moves turn more optimal you may
-            # wish to turn that option off.
-            navigate_command = ship.navigate(
-                ship.closest_point_to(planet),
-                game_map,
-                speed=int(hlt.constants.MAX_SPEED),
-                ignore_ships=True)
-            # If the move is possible, add it to the command_queue (if there are too many obstacles on the way
-            # or we are trapped (or we reached our destination!), navigate_command will return null;
-            # don't fret though, we can run the command again the next turn)
-            if navigate_command:
-                return navigate_command
-            else:
-                return []
-
-    def attack_enemy_planet(self, ship, enemy_planet, game_map):
-        enemy_ships = enemy_planet.all_docked_ships()
-        navigate_command = ship.navigate(
-            ship.closest_point_to(enemy_ships[0]),
-            game_map,
-            speed=int(hlt.constants.MAX_SPEED),
-            ignore_ships=True)
-        if navigate_command:
-            return navigate_command
-        else:
-            return []
-
+            
+    def update_ship_list(self, game_map):
+        self.active_ship_list = [ActionShip(ship) for ship in game_map.get_me().all_ships() if ship.docking_status == hlt.entity.Ship.DockingStatus.UNDOCKED]
 
 
     def update_swarm(self, game_map):
+        
         command_queue = []
-
         self.planets_being_explored = []
-        # For every ship that I control
-        for ship in game_map.get_me().all_ships():
-            # If the ship is docked
-            if ship.docking_status != ship.DockingStatus.UNDOCKED:
-                # Skip this ship
-                continue
+        self.update_ship_list(game_map)
 
-            closest_free_planet = self.find_closest_planet(game_map, ship, planet_status='free')
-
-            if closest_free_planet:
-                cmd = self.act_on_planet(closest_free_planet,ship,game_map)
-                if cmd:
-                    command_queue.append(cmd)
-            else:
-                #if no free planet is available find nearest enemy planet
-                closest_enemy_planet = self.find_closest_planet(game_map, ship, planet_status='enemy')
-                if closest_enemy_planet:
-                    cmd = self.attack_enemy_planet(ship, closest_enemy_planet, game_map)
-                    if cmd:
-                        command_queue.append(cmd)
+        for actionShip in self.active_ship_list:
+        
+            cmd = actionShip.do_action(game_map,ActionType.DIVIDE)
+            if not cmd:
+                cmd = actionShip.do_action(game_map,ActionType.ATTACK)
+            command_queue.append(cmd)
 
         return command_queue
 
@@ -159,7 +192,7 @@ class GameMaster:
         self.turn_timer = time.time()
 
         #init swarm master
-        self.swarm = SwarmMaster(self.game.map, track_enemies=False)
+        self.swarm = SwarmMaster()
 
 
     def one_turn(self):
@@ -168,6 +201,9 @@ class GameMaster:
         logging.info("Executing Turn: " + str(self.turn_counter))
 
         commands = self.swarm.update_swarm(self.game.update_map())
+        if not commands:
+            commands = ''
+        logging.info("Commands: "+str(commands))
         self.game.send_command_queue(commands)
 
 
