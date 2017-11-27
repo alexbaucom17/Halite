@@ -23,13 +23,6 @@ Better strategy
     - Strategist looks at game state and determines what percentage of fleet should do which actions
     - Swarm master assigns actions to ships and helps determine best ship for each action
     - Ships carry out actions and communicate with swarm master regarding suitability for action
-    
-More better-er stategy
-- Keep processing more centralized for assigning ships - use more efficient distance and prioirty queue
-- write A* pathfinding module, include ability to change obstacle types (planets and ships)
-- Stick with basic probabilty to choose fortify vs diversify tactics, but make sure bots don't keep flipping back and forth
-- Dont worry about planet destruction for now, focus on getting solid, extensible foundation that can capture planets and attack enemies
-- Maybe try targetting specific strategic planets
 """
 
 import hlt
