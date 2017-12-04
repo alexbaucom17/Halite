@@ -1,7 +1,83 @@
 import numpy as np
-from queue import PriorityQueue
+from Queue import PriorityQueue
 import math
 
+class PlanningMap:
+
+    def __init__(self,width,height,inflation_buffer=0.5):
+        self.width = width
+        self.height = height
+        self.map = np.zeros((self.height,self.width),dtype=bool)
+        self.inflation_buffer = inflation_buffer
+        self.ship_for_map_set = -1
+        
+    def set_obstacle(self,xCenter,yCenter,radius,clear=False,inflation_buffer=True):
+        if inflation_buffer:
+            radius = radius + self.inflation_buffer
+            
+        radius = int(math.ceil(radius))
+        for x in range(xCenter-radius,xCenter+1):
+            for y in range(yCenter-radius,yCenter+1):
+                if ((x - xCenter)*(x - xCenter) + (y - yCenter)*(y - yCenter) <= radius*radius):
+                    xSym = xCenter - (x - xCenter)
+                    ySym = yCenter - (y - yCenter)
+                    for x_obs, y_obs in [(x, y), (x, ySym), (xSym , y), (xSym, ySym)]:
+                        if self.is_in_map(x_obs,y_obs):
+                            if clear:
+                                self.map[y_obs,x_obs] = 0
+                            else:
+                                self.map[y_obs,x_obs] = 1
+                        
+    def is_in_map(self,x,y):
+        if x >= 0 and y >= 0 and x < self.width and y < self.height:
+            return True
+        else:
+            return False
+            
+    def add_entity_obstacles(self,entity_list):
+        for entity in entity_list:
+            self.set_obstacle(entity.x,entity.y,entity.radius)
+            
+    def add_ship_obstacles(self,game_map):
+        for player in game_map.all_players():
+            ship_list = [ship for ship in player.all_ships()]
+            self.add_entity_obstacles(ship_list)
+            
+    def add_planet_obstacles(self,game_map):
+        planet_list = [planet for planet in game_map.all_planets()]
+        self.add_entity_obstacles(planet_list)
+        
+    def add_all_obstalces(self,game_map):
+        self.add_ship_obstacles(game_map)
+        self.add_planet_obstalces(game_map)
+        
+    def get_map(self):
+        self.reset_map_for_ship() 
+        return self.map
+        
+    def get_map_for_ship(self,ship):
+        self.reset_map_for_ship() 
+        self.set_obstacle(ship.x,ship.y,ship.radius,clear=True)
+        self.ship_for_map_set = ship
+        return self.map
+        
+    def reset_map_for_ship(self):
+        if self.ship_for_map_set != -1:
+            self.set_obstacle(self.ship_for_map_set.x,self.ship_for_map_set.y,self.ship_for_map_set.radius,clear=False)
+            self.ship_for_map_set = -1
+    
+        
+        
+        
+
+
+class PathPlanner:
+
+    def __init__(self, game_map):
+        pass
+        
+    
+        
 
 
 def next_path_nodes(node,scene,path):
@@ -63,3 +139,23 @@ def find_path(start, goal, scene):
                 score = score_node(new_node,goal,new_path)
                 q.put((score, (new_node, new_path)))
                 explored.add(new_node)
+  
+  
+class TestShip:
+    def __init__(self,x,y,r):
+        self.x = x
+        self.y = y
+        self.radius = r              
+        
+                
+                
+if __name__ == "__main__":
+    pm = PlanningMap(10,10)
+    s = TestShip(3,3,0.5)
+    pm.set_obstacle(5,2,2)
+    print(pm.get_map_for_ship(s))
+    print(pm.get_map())
+
+
+
+
