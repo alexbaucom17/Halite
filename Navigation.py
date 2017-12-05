@@ -1,6 +1,7 @@
 import numpy as np
 from Queue import PriorityQueue
 import math
+from enum import Enum
 
 class PlanningMap:
 
@@ -69,76 +70,104 @@ class PlanningMap:
         
         
         
-
+class PlanObstacleType(Enum):
+    NONE = 0
+    PLANETS_ONLY = 1
+    SHIPS_ONLY = 2
+    ALL = 3
 
 class PathPlanner:
-
+ 
     def __init__(self, game_map):
-        pass
+        self.full_map = PlanningMap(game_map.width, game_map.height)
+        self.full_map.add_all_obstacles(game_map)
+        self.empty_map = PlanningMap(game_map.width, game_map.height)
+        self.planet_only_map = []
+        self.ship_only_map = []
+        self.game_map = game_map
         
-    
         
+    def plan_path_for_ship(self,ship,destination,obstacle_type):
+        if obstacle_type == PlanObstacleType.NONE:
+            path = self.find_path((ship.x,ship.y),destination,self.empty_map)
+        elif obstacle_type == PlanObstacleType.PLANETS_ONLY:
+            if not self.planet_only_map:
+                self.planet_only_map = PlanningMap(self.game_map.width, self.game_map.height)
+                self.planet_only_map.add_planet_obstacles(self.game_map)
+            path = self.find_path((ship.x,ship.y),destination,self.planet_only_map.get_map_for_ship(ship))
+        elif obstacle_type = PlanObstacleType.SHIPS_ONLY:
+            if not self.ship_only_map:
+                self.ship_only_map = PlanningMap(self.game_map.width, self.game_map.height)
+                self.ship_only_map.add_ship_obstacles(self.game_map)
+            path = self.find_path((ship.x,ship.y),destination,self.planet_only_map.get_map_for_ship(ship))
+        elif obstacle_type = PlanObstacle.ALL:
+            path = self.find_path((ship.x,ship.y),destination,self.full_map.get_map_for_ship(ship))
+        else:
+            path = []
+            raise ValueError("Invalide PlanObstacle type")  
+        return path                  
+  
+    @classmethod
+    def next_path_nodes(node,scene,path):
+        lst = ((0,1),(1,1),(1,0),(1,-1),(0,-1),(-1,-1),(-1,0),(-1,1))
+        nxt = []
+        dims = (len(scene), len(scene[0]))
+        for dxy in lst:
+            new_node = (node[0]+dxy[0],node[1]+dxy[1])
+            if new_node[0] >= dims[0] or new_node[1] >= dims[1] or new_node[0] < 0 or new_node[1] < 0:
+                continue
+            if not scene[new_node[0]][new_node[1]]:
+                nxt.append((new_node,path+[new_node]))
+        return nxt
 
+    @classmethod
+    def score_node(node,goal,moves):
+        g = len(moves)
+        h = math.sqrt((node[0]-goal[0])**2 + (node[1] - goal[1])**2)
+        return g+h
 
-def next_path_nodes(node,scene,path):
-    lst = ((0,1),(1,1),(1,0),(1,-1),(0,-1),(-1,-1),(-1,0),(-1,1))
-    nxt = []
-    dims = (len(scene), len(scene[0]))
-    for dxy in lst:
-        new_node = (node[0]+dxy[0],node[1]+dxy[1])
-        if new_node[0] >= dims[0] or new_node[1] >= dims[1] or new_node[0] < 0 or new_node[1] < 0:
-            continue
-        if not scene[new_node[0]][new_node[1]]:
-            nxt.append((new_node,path+[new_node]))
-    return nxt
+    @classmethod
+    def find_path(start, goal, scene):
 
-def score_node(node,goal,moves):
-    g = len(moves)
-    h = math.sqrt((node[0]-goal[0])**2 + (node[1] - goal[1])**2)
-    return g+h
+        # check to make sure it isn't already solved
+        if start == goal:
+            return []
 
-
-def find_path(start, goal, scene):
-
-    # check to make sure it isn't already solved
-    if start == goal:
-        return []
-
-    #check to make sure goal and start are not on obstacles
-    if scene[start[0]][start[1]] == True:
-        return None
-    if scene[goal[0]][goal[1]] == True:
-        return None
-
-    # initialize search queue and explored set
-    explored = set(start)
-    q = PriorityQueue()
-    for node,path in next_path_nodes(start,scene,[start]):
-        score = score_node(node,goal,path)
-        q.put((score, (node,path)))
-        explored.add(node)
-
-    # search until solution is found
-    while True:
-
-        # check if queue is empty
-        if q.empty():
+        #check to make sure goal and start are not on obstacles
+        if scene[start[0]][start[1]] == True:
+            return None
+        if scene[goal[0]][goal[1]] == True:
             return None
 
-        # grab a node from start of queue
-        score, (node, path) = q.get()
+        # initialize search queue and explored set
+        explored = set(start)
+        q = PriorityQueue()
+        for node,path in self.next_path_nodes(start,scene,[start]):
+            score = self.score_node(node,goal,path)
+            q.put((score, (node,path)))
+            explored.add(node)
 
-        # check for solution
-        if node == goal:
-            return path
+        # search until solution is found
+        while True:
 
-        # expand node and append unexplored nodes to queue
-        for new_node,new_path in next_path_nodes(node,scene,path):
+            # check if queue is empty
+            if q.empty():
+                return None
 
-            if new_node not in explored:
-                score = score_node(new_node,goal,new_path)
-                q.put((score, (new_node, new_path)))
-                explored.add(new_node)
+            # grab a node from start of queue
+            score, (node, path) = q.get()
+
+            # check for solution
+            if node == goal:
+                return path
+
+            # expand node and append unexplored nodes to queue
+            for new_node,new_path in self.next_path_nodes(node,scene,path):
+
+                if new_node not in explored:
+                    score = self.score_node(new_node,goal,new_path)
+                    q.put((score, (new_node, new_path)))
+                    explored.add(new_node)
   
   
 class TestShip:
