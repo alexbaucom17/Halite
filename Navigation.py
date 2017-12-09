@@ -48,9 +48,9 @@ class PlanningMap:
         planet_list = [planet for planet in game_map.all_planets()]
         self.add_entity_obstacles(planet_list)
         
-    def add_all_obstalces(self,game_map):
+    def add_all_obstacles(self,game_map):
         self.add_ship_obstacles(game_map)
-        self.add_planet_obstalces(game_map)
+        self.add_planet_obstacles(game_map)
         
     def get_map(self):
         self.reset_map_for_ship() 
@@ -77,6 +77,7 @@ class PlanObstacleType(Enum):
     ALL = 3
 
 class PathPlanner:
+#Everything is flipped with rows and columns for x and y 
  
     def __init__(self, game_map):
         self.full_map = PlanningMap(game_map.width, game_map.height)
@@ -86,57 +87,108 @@ class PathPlanner:
         self.ship_only_map = []
         self.game_map = game_map
         
+    def get_nav_cmd_for_ship(self,ship,destination,obstacle_type=PlanObstacleType.ALL):
+
+        path = self.plan_path_for_ship(ship,destination,obstacle_type)
+        simple_path = self.simplify_path(ship,path,obstacle_type)
+        dist,ang = self.path_to_nav_cmd(simple_path)
+        return ship.thrust(dist,ang)
         
-    def plan_path_for_ship(self,ship,destination,obstacle_type):
+    def simplify_path(self,ship,path,obstacle_type):
+
+        ship_map = get_map_for_ship_and_obstacle(ship,obstacle_type)
+        return self.find_longest_line(path,ship_map)
+        
+    def find_longest_line(path,grid):
+        start_point = path[0]
+        
+        for cell in path:
+            if cell == start_point:
+                continue
+                
+            if self.does_line_intersect(start_point, cell, grid):
+                break
+            else:
+                end_point = cell
+                
+        return (start_point, end_point)
+            
+    def does_line_instersect(p1,p2,grid):
+        pass 
+        
+        
+    def path_to_nav_cmd(self, simple_path):
+        x1 = simple_path[0][0]
+        y1 = simple_path[0][1]
+        x2 = simple_path[1][0]
+        y2 = simple_path[1][1]
+        
+        dist = math.sqrt((x2-x1)**2 + (y2-y1)**2)  
+        ang = -math.atan2((y2-y1),(x2-x1)) #negative b/c y axis is flipped
+        if dist > constants.MAX_SPEED:
+            dist = constants.MAX_SPEED
+        
+        return dist,ang      
+     
+     
+    def get_map_for_ship_and_obstacle(self, ship, obstacle_type):
         if obstacle_type == PlanObstacleType.NONE:
-            path = self.find_path((ship.x,ship.y),destination,self.empty_map)
+            return self.empty_map.get_map()
+            
         elif obstacle_type == PlanObstacleType.PLANETS_ONLY:
             if not self.planet_only_map:
                 self.planet_only_map = PlanningMap(self.game_map.width, self.game_map.height)
                 self.planet_only_map.add_planet_obstacles(self.game_map)
-            path = self.find_path((ship.x,ship.y),destination,self.planet_only_map.get_map_for_ship(ship))
-        elif obstacle_type = PlanObstacleType.SHIPS_ONLY:
+            return self.planet_only_map.get_map_for_ship(ship)
+            
+        elif obstacle_type == PlanObstacleType.SHIPS_ONLY:
             if not self.ship_only_map:
                 self.ship_only_map = PlanningMap(self.game_map.width, self.game_map.height)
                 self.ship_only_map.add_ship_obstacles(self.game_map)
-            path = self.find_path((ship.x,ship.y),destination,self.planet_only_map.get_map_for_ship(ship))
-        elif obstacle_type = PlanObstacle.ALL:
-            path = self.find_path((ship.x,ship.y),destination,self.full_map.get_map_for_ship(ship))
+            return self.ship_only_map.get_map_for_ship(ship)
+            
+        elif obstacle_type == PlanObstacleType.ALL:
+            return self.full_map.get_map_for_ship(ship)
+            
         else:
-            path = []
-            raise ValueError("Invalide PlanObstacle type")  
-        return path                  
+            raise ValueError("Invalide PlanObstacle type") 
+         
+        
+    def plan_path_for_ship(self,ship,destination,obstacle_type):
+        
+        ship_map = self.get_map_for_ship_and_obstacle(ship,obstacle_type)
+        return self.find_path((ship.x,ship.y),destination,ship_map)
   
-    @classmethod
-    def next_path_nodes(node,scene,path):
-        lst = ((0,1),(1,1),(1,0),(1,-1),(0,-1),(-1,-1),(-1,0),(-1,1))
+    def next_path_nodes(self,node,scene,path):
+        lst = ((0,1),(1,0),(0,-1),(-1,0))
         nxt = []
-        dims = (len(scene), len(scene[0]))
+        dims = (len(scene[0]), len(scene))
         for dxy in lst:
             new_node = (node[0]+dxy[0],node[1]+dxy[1])
             if new_node[0] >= dims[0] or new_node[1] >= dims[1] or new_node[0] < 0 or new_node[1] < 0:
                 continue
-            if not scene[new_node[0]][new_node[1]]:
+            if not scene[new_node[1]][new_node[0]]:
                 nxt.append((new_node,path+[new_node]))
         return nxt
 
-    @classmethod
-    def score_node(node,goal,moves):
+    def score_node(self,node,goal,moves):
         g = len(moves)
         h = math.sqrt((node[0]-goal[0])**2 + (node[1] - goal[1])**2)
         return g+h
 
-    @classmethod
-    def find_path(start, goal, scene):
+    def find_path(self,start, goal, scene):
 
         # check to make sure it isn't already solved
         if start == goal:
             return []
 
         #check to make sure goal and start are not on obstacles
-        if scene[start[0]][start[1]] == True:
+        if scene[start[1]][start[0]] == True:
+            print('Start on obstacle')
             return None
-        if scene[goal[0]][goal[1]] == True:
+        if scene[goal[1]][goal[0]] == True:
+            print('Goal on obstacle')
+            print(scene)
             return None
 
         # initialize search queue and explored set
@@ -175,16 +227,55 @@ class TestShip:
         self.x = x
         self.y = y
         self.radius = r              
+ 
+class TestPlanet:
+    def __init__(self,x,y,r):
+        self.x = x
+        self.y = y
+        self.radius = r
         
+class TestMap:
+    def __init__(self,w,h):
+        self.width = w
+        self.height = h
+        self.planets = []
+        self.players = [TestPlayer()]
+        self.planets.append(TestPlanet(2,2,1))
+        self.planets.append(TestPlanet(9,6,1))
+     
+    def get_me(self):
+        return self.players[0]
+        
+    def all_players(self):
+        return self.players
+        
+    def all_planets(self):
+        return self.planets
+        
+class TestPlayer:
+    def __init__(self):
+        self.id = 1
+        self.ships = []
+        self.ships.append(TestShip(6,1,0.5))
+        self.ships.append(TestShip(5,4,0.5))   
+        
+    def all_ships(self):
+        return self.ships     
                 
                 
 if __name__ == "__main__":
-    pm = PlanningMap(10,10)
-    s = TestShip(3,3,0.5)
-    pm.set_obstacle(5,2,2)
-    print(pm.get_map_for_ship(s))
-    print(pm.get_map())
+    #pm = PlanningMap(10,10)
+    #s = TestShip(3,3,0.5)
+    #pm.set_obstacle(5,2,2)
+    #print(pm.get_map_for_ship(s))
+    #print(pm.get_map())
 
 
+    m = TestMap(12,10)
+    p = PathPlanner(m)
+    print(p.full_map.get_map())
+    s = m.get_me().all_ships()[0]
+    d = (3,6)
+    print(p.plan_path_for_ship(s,d,PlanObstacleType.ALL))
 
 
