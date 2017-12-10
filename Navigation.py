@@ -2,6 +2,10 @@ import numpy as np
 from Queue import PriorityQueue
 import math
 from enum import Enum
+import copy
+import bresenham
+
+MAX_SPEED = 7
 
 class PlanningMap:
 
@@ -90,16 +94,23 @@ class PathPlanner:
     def get_nav_cmd_for_ship(self,ship,destination,obstacle_type=PlanObstacleType.ALL):
 
         path = self.plan_path_for_ship(ship,destination,obstacle_type)
+        #print('Path')
+        #print(path)
         simple_path = self.simplify_path(ship,path,obstacle_type)
+        #print('Simple path')
+        #print(simple_path)
         dist,ang = self.path_to_nav_cmd(simple_path)
+        #print('Nav cmd')
+        #print(dist)
+        #print(ang*180/math.pi)
         return ship.thrust(dist,ang)
         
     def simplify_path(self,ship,path,obstacle_type):
 
-        ship_map = get_map_for_ship_and_obstacle(ship,obstacle_type)
+        ship_map = self.get_map_for_ship_and_obstacle(ship,obstacle_type)
         return self.find_longest_line(path,ship_map)
         
-    def find_longest_line(path,grid):
+    def find_longest_line(self, path,grid):
         start_point = path[0]
         
         for cell in path:
@@ -113,8 +124,12 @@ class PathPlanner:
                 
         return (start_point, end_point)
             
-    def does_line_instersect(p1,p2,grid):
-        pass 
+    def does_line_intersect(self, p1,p2,grid):
+        
+        b = bresenham.bresenham(p1,p2)
+        cell_hits = b.path
+        intersections = [grid[pt[1]][pt[0]] for pt in cell_hits]
+        return np.any(intersections)            
         
         
     def path_to_nav_cmd(self, simple_path):
@@ -125,8 +140,8 @@ class PathPlanner:
         
         dist = math.sqrt((x2-x1)**2 + (y2-y1)**2)  
         ang = -math.atan2((y2-y1),(x2-x1)) #negative b/c y axis is flipped
-        if dist > constants.MAX_SPEED:
-            dist = constants.MAX_SPEED
+        if dist > MAX_SPEED:
+            dist = MAX_SPEED
         
         return dist,ang      
      
@@ -226,7 +241,11 @@ class TestShip:
     def __init__(self,x,y,r):
         self.x = x
         self.y = y
-        self.radius = r              
+        self.radius = r 
+        self.id = 1  
+        
+    def thrust(self, magnitude, angle):
+        return "t {} {} {}".format(self.id, int(magnitude), round(angle))           
  
 class TestPlanet:
     def __init__(self,x,y,r):
@@ -256,7 +275,7 @@ class TestPlayer:
     def __init__(self):
         self.id = 1
         self.ships = []
-        self.ships.append(TestShip(6,1,0.5))
+        self.ships.append(TestShip(7,5,0.5))
         self.ships.append(TestShip(5,4,0.5))   
         
     def all_ships(self):
@@ -276,6 +295,6 @@ if __name__ == "__main__":
     print(p.full_map.get_map())
     s = m.get_me().all_ships()[0]
     d = (3,6)
-    print(p.plan_path_for_ship(s,d,PlanObstacleType.ALL))
+    p.get_nav_cmd_for_ship(s,d,PlanObstacleType.ALL)
 
 
